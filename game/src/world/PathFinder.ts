@@ -1,4 +1,4 @@
-import { MAX_NUM_TILES_X, MAX_NUM_TILES_Y, type Tile } from './iso.ts';
+import { MAX_NUM_TILES_X, MAX_NUM_TILES_Y, type Tile } from './iso';
 
 /** A* em oito direções, com custos 10 cardinal e 14 diagonal e heurística octile admissível. Destinos ocupados são permitidos; tiles intermediários devem ser livres. */
 
