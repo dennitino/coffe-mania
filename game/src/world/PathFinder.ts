@@ -1,6 +1,6 @@
-import { MAX_NUM_TILES_X, MAX_NUM_TILES_Y, tileIndex, type Tile } from './iso';
+import { MAX_NUM_TILES_X, MAX_NUM_TILES_Y, type Tile } from './iso.ts';
 
-/** A* em oito direções: custo 10 cardinal e 14 diagonal. A heurística Manhattan × 10 pode superestimar diagonais. Destinos ocupados são permitidos; tiles intermediários devem ser livres, e nós fechados não reabrem. */
+/** A* em oito direções, com custos 10 cardinal e 14 diagonal e heurística octile admissível. Destinos ocupados são permitidos; tiles intermediários devem ser livres. */
 
 export interface IsWalkable {
   (tx: number, ty: number): boolean;
@@ -72,13 +72,19 @@ export function findPath(options: FindPathOptions): Tile[] | null {
 
   const nodes = new Map<number, Node>();
   const open: Node[] = [];
+  // A largura configurável deve participar da chave; tileIndex usa a largura padrão.
+  const keyFor = (tx: number, ty: number): number => ty * maxTilesX + tx;
 
   const root: Node = { tx: start.tx, ty: start.ty, parent: null, g: 0, f: 0, state: STATE_OPEN };
   open.push(root);
-  nodes.set(tileIndex(start.tx, start.ty), root);
+  nodes.set(keyFor(start.tx, start.ty), root);
 
-  const heuristic = (tx: number, ty: number): number =>
-    (Math.abs(dest.tx - tx) + Math.abs(dest.ty - ty)) * STRAIGHT_SCORE;
+  // Distância octile: nunca superestima um trajeto de passos cardinais/diagonais.
+  const heuristic = (tx: number, ty: number): number => {
+    const dx = Math.abs(dest.tx - tx), dy = Math.abs(dest.ty - ty);
+    const diagonal = Math.min(dx, dy);
+    return diagonal * DIAGONAL_SCORE + (Math.max(dx, dy) - diagonal) * STRAIGHT_SCORE;
+  };
 
   const insert = (node: Node): void => {
     for (let i = 0; i < open.length; i++) {
@@ -122,7 +128,7 @@ export function findPath(options: FindPathOptions): Tile[] | null {
         if (ty < 0 || ty >= maxTilesY) continue;
         if (tx === current.tx && ty === current.ty) continue;
 
-        const key = tileIndex(tx, ty);
+        const key = keyFor(tx, ty);
         const known = nodes.get(key);
         const straight = tx === current.tx || ty === current.ty;
         const g = current.g + (straight ? STRAIGHT_SCORE : DIAGONAL_SCORE);
@@ -132,10 +138,19 @@ export function findPath(options: FindPathOptions): Tile[] | null {
           const node: Node = { tx, ty, parent: current, g, f: g + heuristic(tx, ty), state: STATE_OPEN };
           insert(node);
           nodes.set(key, node);
-        } else if (known.state === STATE_OPEN && g < known.g) {
+        } else if (g < known.g && canStep(current.tx, current.ty, tx, ty)) {
+          // Uma rota melhor invalida a posição antiga na fila de prioridade.
+          // Revalidar a aresta evita relaxar diagonais que cortam cantos bloqueados.
           known.g = g;
           known.f = g + heuristic(tx, ty);
           known.parent = current;
+          if (known.state === STATE_OPEN) {
+            const index = open.indexOf(known);
+            if (index !== -1) open.splice(index, 1);
+          } else {
+            known.state = STATE_OPEN;
+          }
+          insert(known);
         }
       }
     }
